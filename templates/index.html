@@ -67,6 +67,7 @@
 
     .examples{display:flex;gap:8px;flex-wrap:wrap}
     .chip{background:var(--glass);padding:8px 10px;border-radius:999px;border:1px solid var(--glass-border);font-size:13px;color:var(--muted);cursor:pointer}
+    .chip:hover{background:rgba(124,58,237,0.1);border-color:rgba(124,58,237,0.3)}
 
     .meta{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:13px}
 
@@ -116,9 +117,6 @@
           <p class="lead">Fast, explainable predictions — paste text or try the examples.</p>
         </div>
       </div>
-      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <div class="meta">Model: <strong style="color:#fff;margin-left:6px">TF-IDF + LR (demo)</strong></div>
-      </div>
     </header>
 
     <section class="main" aria-label="input area">
@@ -131,7 +129,6 @@
         <div class="controls">
           <button class="btn btn-primary" id="analyzeBtn" aria-label="Analyze news">Analyze</button>
           <button class="btn btn-ghost" id="clearBtn" aria-label="Clear input">Clear</button>
-          <button class="btn btn-ghost" id="exampleToggle" aria-pressed="false" title="Insert an example">Examples</button>
         </div>
 
         <div style="text-align:right">
@@ -141,16 +138,16 @@
 
       <div style="display:flex;gap:10px;align-items:center;margin-top:6px">
         <div class="examples" id="examples">
-          <button class="chip" data-sample="WHO Approves New Malaria Vaccine...\nThe World Health Organization (WHO) has approved...">vaccine (real)</button>
-          <button class="chip" data-sample="Scientists Confirm the Earth Will Stop Spinning Next Week...\nA viral post claims the Earth will stop spinning next week...">earth stop (fake)</button>
-          <button class="chip" data-sample="Nigerian Government to Give Every Citizen...\nA viral Facebook post claims that the government will distribute...">govt money (fake)</button>
-          <button class="chip" data-sample="NASA Confirms Successful Launch of Artemis II Mission...\nNASA has successfully launched the Artemis II mission...">space (real)</button>
+          <button class="chip" data-sample="WHO announces approval of new malaria vaccine for children in Africa after successful clinical trials">vaccine (real)</button>
+          <button class="chip" data-sample="Scientists confirm the Earth will stop spinning next week causing catastrophic global disaster">earth stop (fake)</button>
+          <button class="chip" data-sample="Government to give every citizen one million dollars next month says viral Facebook post">govt money (fake)</button>
+          <button class="chip" data-sample="NASA launches new space telescope to study distant galaxies and exoplanets">space (real)</button>
         </div>
       </div>
 
       <div style="margin-top:auto;display:flex;gap:8px;align-items:center;justify-content:space-between">
         <div class="meta">Tip: Use Ctrl+Enter to run quickly</div>
-        <div class="meta">Confidence shown as %</div>
+        <div class="meta">Trained on 44901 articles</div>
       </div>
     </section>
 
@@ -163,7 +160,7 @@
               <div style="font-weight:700">Prediction</div>
               <div style="font-size:13px;color:var(--muted)" id="predictedText">—</div>
             </div>
-            <div class="conf-text" id="detailText">Model confidence and short explanation</div>
+            <div class="conf-text" id="detailText">Awaiting analysis...</div>
           </div>
         </div>
 
@@ -175,13 +172,13 @@
           <div class="bar" aria-hidden><i id="confBar"></i></div>
         </div>
 
-        <div class="explain" id="explain">Model highlight: top contributing words will appear here.</div>
+        <div class="explain" id="explain">Model highlights and contributing factors will appear here after analysis.</div>
       </div>
 
       <div style="flex:1;display:flex;flex-direction:column;gap:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div style="font-weight:700">History</div>
-          <button class="btn btn-ghost" id="clearHistory">Clear</button>
+          <button class="btn btn-ghost" style="padding:6px 10px;font-size:12px" id="clearHistory">Clear</button>
         </div>
 
         <div class="history" id="history" role="list"></div>
@@ -192,7 +189,6 @@
  </main>
 
   <script>
-    // UI behaviour + lightweight client-side demo fallback
     const newsText = document.getElementById('newsText');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const clearBtn = document.getElementById('clearBtn');
@@ -208,7 +204,7 @@
     const historyEl = document.getElementById('history');
     const clearHistoryBtn = document.getElementById('clearHistory');
 
-    // hook up chips
+    // Hook up example chips
     examplesWrap.addEventListener('click', e => {
       const el = e.target.closest('[data-sample]');
       if(!el) return;
@@ -216,7 +212,7 @@
       newsText.focus();
     });
 
-    // keyboard shortcut
+    // Keyboard shortcut
     newsText.addEventListener('keydown', (e) => {
       if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         analyze();
@@ -229,59 +225,105 @@
 
     async function analyze() {
       const text = newsText.value.trim();
-      if(!text) { alert('Please paste or type some text to analyze'); newsText.focus(); return; }
+      if(!text) { 
+        alert('Please paste or type some text to analyze'); 
+        newsText.focus(); 
+        return; 
+      }
 
-      analyzeBtn.disabled = true; analyzeBtn.textContent = 'Analyzing...';
+      if(text.length < 10) {
+        alert('Please enter at least 10 characters for better accuracy');
+        newsText.focus();
+        return;
+      }
+
+      analyzeBtn.disabled = true; 
+      analyzeBtn.textContent = 'Analyzing...';
       const t0 = performance.now();
 
-      // Try to call backend; if not available, run a tiny client-side heuristic for demo
       try {
         const res = await fetch('/predict', {
-          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({text})
+          method: 'POST', 
+          headers: {'Content-Type':'application/json'}, 
+          body: JSON.stringify({text})
         });
 
-        if(!res.ok) throw new Error('Server returned ' + res.status);
+        if(!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || 'Server returned ' + res.status);
+        }
+
         const data = await res.json();
-        if(!data || !data.success) throw new Error(data?.error || 'Invalid response');
-        showResult(data.prediction, data.is_fake, data.confidence, data.explanation || '—');
-      } catch(err) {
-        // offline fallback: tiny heuristic + randomness for demo only
-        const fallback = clientFallback(text);
-        showResult(fallback.prediction, fallback.is_fake, fallback.confidence, fallback.explanation);
-      } finally {
+        
+        if(!data || !data.success) {
+          throw new Error(data?.error || 'Invalid response from server');
+        }
+
         const t1 = performance.now();
         respTime.textContent = Math.round(t1 - t0) + 'ms';
-        analyzeBtn.disabled = false; analyzeBtn.textContent = 'Analyze';
+        
+        showResult(
+          data.prediction, 
+          data.is_fake, 
+          data.confidence, 
+          data.explanation || 'Analysis complete',
+          data.real_probability,
+          data.fake_probability
+        );
+
+      } catch(err) {
+        console.error('Error:', err);
+        alert('Error: ' + err.message + '\n\nMake sure the Flask server is running!');
+        respTime.textContent = '—';
+      } finally {
+        analyzeBtn.disabled = false; 
+        analyzeBtn.textContent = 'Analyze';
       }
     }
 
-    function clientFallback(text){
-      // toy heuristic: if text contains many strong emotive words and exclamation marks => likely fake
-      const fakeSignals = ['shocking','confirmed','cure','never','will stop','miracle','urgent','scam','giveaway','won','secret'];
-      let score = 0;
-      const txt = text.toLowerCase();
-      fakeSignals.forEach(w => { if(txt.includes(w)) score += 1; });
-      score += (txt.match(/!/g)||[]).length * 0.6;
-
-      const confidence = Math.min(95, 30 + score * 20 + Math.random()*30);
-      const is_fake = confidence > 55;
-      return { prediction: is_fake? 'FAKE':'REAL', is_fake, confidence: confidence.toFixed(1), explanation: is_fake? 'Detected emotional language, strong claims':'Language appears informational and neutral' };
-    }
-
-    function showResult(prediction, is_fake, confidence, explanation){
+    function showResult(prediction, is_fake, confidence, explanation, real_prob, fake_prob){
       const conf = Number(confidence);
+      
+      // Update badge
       badge.className = 'badge ' + (is_fake? 'fake':'real');
       badge.textContent = is_fake? 'FAKE':'REAL';
+      
+      // Update prediction text
       predictedText.textContent = prediction;
-      detailText.textContent = is_fake? 'Flagged as likely misinformation':'Likely authentic';
+      
+      // Update detail text
+      if(is_fake) {
+        detailText.textContent = conf > 80 ? 'High confidence - likely misinformation' : 'Flagged as potential misinformation';
+      } else {
+        detailText.textContent = conf > 80 ? 'High confidence - likely authentic' : 'Appears authentic with some uncertainty';
+      }
+      
+      // Update confidence
       confPct.textContent = Math.round(conf) + '%';
       confBar.style.width = Math.max(2, Math.min(100, Math.round(conf))) + '%';
+      
+      // Update explanation
       explain.textContent = explanation;
 
-      // push to history
-      const item = document.createElement('div'); item.className='item';
-      item.innerHTML = `<div style="flex:1;min-width:0"><strong style="display:block">${prediction}</strong><div class="meta">${explanation}</div></div><div style="min-width:80px;text-align:right" class="meta">${Math.round(conf)}%</div>`;
+      // Push to history
+      const item = document.createElement('div'); 
+      item.className='item';
+      const shortText = newsText.value.substring(0, 50) + (newsText.value.length > 50 ? '...' : '');
+      item.innerHTML = `
+        <div style="flex:1;min-width:0">
+          <strong style="display:block;color:${is_fake ? '#fb7185' : '#34d399'}">${prediction}</strong>
+          <div class="meta" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortText}</div>
+        </div>
+        <div style="min-width:80px;text-align:right" class="meta">
+          ${Math.round(conf)}%
+        </div>
+      `;
       historyEl.prepend(item);
+      
+      // Limit history to 10 items
+      while(historyEl.children.length > 10) {
+        historyEl.removeChild(historyEl.lastChild);
+      }
     }
 
   </script>
